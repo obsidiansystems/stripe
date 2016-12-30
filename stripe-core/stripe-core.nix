@@ -1,5 +1,5 @@
 { mkDerivation, aeson, base, bytestring, mtl, stdenv, text, time
-, transformers, unordered-containers
+, transformers, unordered-containers, data-default-class
 }:
 mkDerivation {
   pname = "stripe-core";
@@ -7,7 +7,7 @@ mkDerivation {
   src = ./.;
   buildDepends = [
     aeson base bytestring mtl text time transformers
-    unordered-containers
+    unordered-containers data-default-class
   ];
   homepage = "https://github.com/dmjio/stripe-haskell";
   description = "Stripe API for Haskell - Pure Core";

@@ -5,8 +5,9 @@
 {-# LANGUAGE StandaloneDeriving   #-}
 {-# LANGUAGE TypeFamilies         #-}
 {-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE ScopedTypeVariables  #-}
 ------------------------------------------------------------------------------
--- | 
+-- |
 -- Module      : Web.Stripe.Types
 -- Copyright   : (c) David Johnson, 2014
 -- Maintainer  : djohnson.m@gmail.com
@@ -17,14 +18,17 @@
 module Web.Stripe.Types where
 ------------------------------------------------------------------------------
 import           Control.Applicative (pure, (<$>), (<*>), (<|>))
-import           Control.Monad       (mzero)
+import           Control.Monad       (mzero, guard)
 import           Data.Aeson          (FromJSON (parseJSON), ToJSON(..),
                                       Value (String, Object, Bool), (.:),
                                       (.:?))
+import qualified Data.ByteString as BS
 import           Data.Data           (Data, Typeable)
 import qualified Data.HashMap.Strict as H
 import           Data.Ratio          ((%))
 import           Data.Text           (Text)
+import qualified Data.Text as T
+import qualified Data.Text.Encoding as T
 import           Data.Time           (UTCTime)
 import           Numeric             (fromRat, showFFloat)
 import           Text.Read           (lexP, pfail)
@@ -1198,14 +1202,19 @@ instance FromJSON Transfer where
 ------------------------------------------------------------------------------
 -- | `BankAccount` Object
 data BankAccount = BankAccount {
-      bankAccountId          :: BankAccountId
-    , bankAccountObject      :: Text
-    , bankAccountLast4       :: Text
-    , bankAccountCountry     :: Country
-    , bankAccountCurrency    :: Currency
-    , bankAccountStatus      :: Maybe BankAccountStatus
-    , bankAccountFingerprint :: Maybe Text
-    , bankAccountName        :: Text
+      bankAccountId                 :: BankAccountId
+    , bankAccountObject             :: Text
+    , bankAccountAccount            :: Maybe Text
+    , bankAccountHolderName         :: Maybe Text
+    , bankAccountdHolderType        :: Maybe Text
+    , bankAccountBankName           :: Text
+    , bankAccountCountry            :: Country
+    , bankAccountCurrency           :: Currency
+    , bankAccountDefaultForCurrency :: Maybe Bool
+    , bankAccountFingerprint        :: Maybe Text
+    , bankAccountLast4              :: Text
+    , bankAccountRoutingNumber      :: Maybe String
+    , bankAccountStatus             :: Maybe BankAccountStatus
 } deriving (Read, Show, Eq, Ord, Data, Typeable)
 
 ------------------------------------------------------------------------------
@@ -1213,13 +1222,18 @@ data BankAccount = BankAccount {
 instance FromJSON BankAccount where
    parseJSON (Object o) =
      BankAccount <$> (BankAccountId <$> o .: "id")
-                 <*> o .: "object"
-                 <*> o .: "last4"
+                 <*> o .:  "object"
+                 <*> o .:? "account"
+                 <*> o .:? "account_holder_name"
+                 <*> o .:? "account_holder_type"
+                 <*> o .:  "bank_name"
                  <*> (Country <$> o .: "country")
-                 <*> o .: "currency"
-                 <*> o .:? "status"
+                 <*> o .:  "currency"
+                 <*> o .:? "default_for_currency"
                  <*> o .:? "fingerprint"
-                 <*> o .: "bank_name"
+                 <*> o .:  "last4"
+                 <*> o .:  "routing_number"
+                 <*> o .:? "status"
    parseJSON _ = mzero
 
 ------------------------------------------------------------------------------
@@ -1263,6 +1277,7 @@ data NewBankAccount = NewBankAccount
     { newBankAccountCountry       :: Country
     , newBankAccountRoutingNumber :: RoutingNumber
     , newBankAccountAccountNumber :: AccountNumber
+    , newBankAccountCurrency :: Currency
     }
     deriving (Read, Show, Eq, Ord, Data, Typeable)
 
@@ -1475,47 +1490,373 @@ instance FromJSON AccountId where
    parseJSON _ = mzero
 
 ------------------------------------------------------------------------------
--- | `Account` Object
-data Account = Account {
-       accountId                   :: AccountId
-     , accountEmail                :: Email
-     , accountStatementDescriptor  :: Maybe Description
-     , accountDisplayName          :: Maybe Text
-     , accountTimeZone             :: Text
-     , accountDetailsSubmitted     :: Bool
-     , accountChargeEnabled        :: Bool
-     , accountTransferEnabled      :: Bool
-     , accountCurrenciesSupported  :: [Currency]
-     , accountDefaultCurrency      :: Currency
-     , accountCountry              :: Text
-     , accountObject               :: Text
-     , accountBusinessName         :: Maybe Text
-     , accountBusinessURL          :: Maybe Text
-     , accountBusinessLogo         :: Maybe Text
-     , accountSupportPhone         :: Maybe Text
-} deriving (Read, Show, Eq, Ord, Data, Typeable)
+-- | Item that indicates certain types of charges pertaining to an `Account`
+-- should be automatically declined.
+data DeclineChargeOn = DeclineChargeOn
+       { declineChargeOnAvsFailure :: Bool
+       , declineChargeOnCvcFailure :: Bool
+       }
+  deriving (Read, Show, Eq, Ord, Data, Typeable)
+
+instance FromJSON DeclineChargeOn where
+  parseJSON (Object o) =
+    DeclineChargeOn <$> o .: "avs_failure"
+                    <*> o .: "cvc_failure"
+  parseJSON _ = mzero
 
 ------------------------------------------------------------------------------
--- | JSON Instance for `Account`
+-- | Item that specifies a bank account or debit card associated
+-- with an `Account`.
+data ExternalAccount = ExternalAccount_BankAccount BankAccount
+                     | ExternalAccount_DebitCard Card
+  deriving (Read, Show, Eq, Ord, Data, Typeable)
+
+instance FromJSON ExternalAccount where
+  parseJSON (Object o) = do
+    (obj :: String) <- o .: "object"
+    case obj of
+      "bank_account" -> ExternalAccount_BankAccount <$> parseJSON (Object o)
+      "card" -> ExternalAccount_DebitCard <$> parseJSON (Object o)
+      _ -> mzero
+  parseJSON _ = mzero
+
+------------------------------------------------------------------------------
+-- | The address of an `AdditionalOwner` of a company
+data Address = Address
+       { ownerAddressCity       :: Maybe AddressCity
+       , ownerAddressCountry    :: Maybe AddressCountry
+       , ownerAddressLine1      :: Maybe AddressLine1
+       , ownerAddressLine2      :: Maybe AddressLine2
+       , ownerAddressPostalCode :: Maybe AddressZip
+       , ownerAddressState      :: Maybe AddressState
+       }
+  deriving (Read, Show, Eq, Ord, Data, Typeable)
+
+instance FromJSON Address where
+  parseJSON (Object o) =
+    Address <$> (fmap AddressCity <$> o .:? "city")
+            <*> (fmap AddressCountry <$> o .:? "country")
+            <*> (fmap AddressLine1 <$> o .:? "line1")
+            <*> (fmap AddressLine2 <$> o .:? "line2")
+            <*> (fmap AddressZip <$> o .:? "postal_code")
+            <*> (fmap AddressState <$> o .:? "state")
+  parseJSON _ = mzero
+
+------------------------------------------------------------------------------
+-- | The date of birth of an `AdditionalOwner` of a company
+data DateOfBirth = DateOfBirth
+       { dateOfBirthDay :: Maybe Int
+       , dateOfBirthMonth :: Maybe Int
+       , dateOfBirthInt :: Maybe Int
+       }
+  deriving (Read, Show, Eq, Ord, Data, Typeable)
+
+instance FromJSON DateOfBirth where
+  parseJSON (Object o) =
+    DateOfBirth <$> o .:? "day"
+                <*> o .:? "month"
+                <*> o .:? "year"
+  parseJSON _ = mzero
+
+------------------------------------------------------------------------------
+-- | Machine readable indicator of why verification failed
+
+data DetailsCode = DetailsCode_Scan_Corrupt
+                 | DetailsCode_Scan_Not_Readable
+                 | DetailsCode_Scan_Failed_Greyscale
+                 | DetailsCode_Scan_Not_Uploaded
+                 | DetailsCode_Scan_Id_Type_Not_Supported
+                 | DetailsCode_Scan_Id_Country_Not_Supported
+                 | DetailsCode_Scan_Name_Mismatch
+                 | DetailsCode_Scan_Failed_Other
+                 | DetailsCode_Failed_Keyed_Identity
+                 | DetailsCode_Failed_Other
+  deriving (Read, Show, Eq, Ord, Data, Typeable)
+
+instance FromJSON DetailsCode where
+  parseJSON (String t) = case T.unpack t of
+    "scan_corrupt"                  -> return DetailsCode_Scan_Corrupt
+    "scan_not_readable"             -> return DetailsCode_Scan_Not_Readable
+    "scan_failed_greyscale"         -> return DetailsCode_Scan_Failed_Greyscale
+    "scan_not_uploaded"             -> return DetailsCode_Scan_Not_Uploaded
+    "scan_id_type_not_supported"    -> return DetailsCode_Scan_Id_Type_Not_Supported
+    "scan_id_country_not_supported" -> return DetailsCode_Scan_Id_Country_Not_Supported
+    "scan_name_mismatch"            -> return DetailsCode_Scan_Name_Mismatch
+    "scan_failed_other"             -> return DetailsCode_Scan_Failed_Other
+    "failed_keyed_identity"         -> return DetailsCode_Failed_Keyed_Identity
+    "failed_other"                  -> return DetailsCode_Failed_Other
+    _ -> mzero
+  parseJSON _ = mzero
+
+------------------------------------------------------------------------------
+-- | Verification status
+
+data VerificationStatus = VerificationStatus_Unverified
+                        | VerificationStatus_Pending
+                        | VerificationStatus_Verified
+  deriving (Read, Show, Eq, Ord, Data, Typeable)
+
+instance FromJSON VerificationStatus where
+  parseJSON (String t) = case T.unpack t of
+    "unverified" -> return VerificationStatus_Unverified
+    "pending"    -> return VerificationStatus_Pending
+    "verified"   -> return VerificationStatus_Verified
+    _ -> mzero
+  parseJSON _ = mzero
+
+------------------------------------------------------------------------------
+-- | The verification information of a `LegalEntity` or `AdditionalOwner`
+data Verification = Verification
+       { verificationDetails :: Maybe String
+       , verificationDetails_Code :: Maybe DetailsCode
+       , verificationDetails_Document :: Maybe FileUploadId
+       , verificationDetails_Status :: Maybe VerificationStatus
+       }
+  deriving (Read, Show, Eq, Ord, Data, Typeable)
+
+instance FromJSON Verification where
+  parseJSON (Object o) =
+    Verification <$> o .:? "details"
+                 <*> o .:? "details_code"
+                 <*> o .:? "document"
+                 <*> o .:? "status"
+  parseJSON _ = mzero
+
+------------------------------------------------------------------------------
+-- | Item that describes additional owners of a company that owns an `Account`
+data AdditionalOwner = AdditionalOwner
+       { additionalOwnerAddress      :: Maybe Address
+       , additionalOwnerDateOfBirth  :: Maybe DateOfBirth
+       , additionalOwnerFirstName    :: Maybe String
+       , additionalOwnerLastName     :: Maybe String
+       , additionalOwnerVerification :: Maybe Verification
+       }
+  deriving (Read, Show, Eq, Ord, Data, Typeable)
+
+instance FromJSON AdditionalOwner where
+  parseJSON (Object o) =
+    AdditionalOwner <$> o .:? "address"
+                    <*> o .:? "dob"
+                    <*> o .:? "first_name"
+                    <*> o .:? "last_name"
+                    <*> o .:? "verification"
+  parseJSON _ = mzero
+
+------------------------------------------------------------------------------
+data Gender = Gender_Female
+            | Gender_Male
+  deriving (Read, Show, Eq, Ord, Data, Typeable)
+
+instance FromJSON Gender where
+  parseJSON (String s) = case T.unpack s of
+    "female" -> return Gender_Female
+    "male" -> return Gender_Male
+    _ -> mzero
+  parseJSON _ = mzero
+
+------------------------------------------------------------------------------
+-- | Item that describes the legal owner of an `Account`
+data LegalEntity = LegalEntity
+       { legalEntityAdditionalOwners :: Maybe (StripeList AdditionalOwner)
+       , legalEntityAddress :: Maybe Address
+       , legalEntityBusinessName :: Maybe String
+       , legalEntityBusinessTaxIdProvided :: Maybe Bool
+       , legalEntityBusinessVatIdProvided :: Maybe Bool
+       , legalEntityDateOfBirth :: Maybe DateOfBirth
+       , legalEntityFirstName :: Maybe FirstName
+       , legalEntityLastName :: Maybe LastName
+       , legalEntityGender :: Maybe Gender
+       , legalEntityMaidenName :: Maybe String
+       , legalEntityPersonalAddress :: Maybe Address
+       , legalEntityPersonalIdNumberProvided :: Maybe Bool
+       , legalEntityPhoneNumber :: Maybe String
+       , legalEntitySSNLast4Provided :: Maybe Bool
+       , legalEntityType :: Maybe String
+       , legalEntityVerification :: Maybe Verification
+       }
+  deriving (Read, Show, Eq, Ord, Data, Typeable)
+
+instance FromJSON LegalEntity where
+  parseJSON (Object o) =
+    LegalEntity <$> o .:? "additional_owners"
+                <*> o .:? "address"
+                <*> o .:? "business_name"
+                <*> o .:? "business_tax_id_provided"
+                <*> o .:? "business_vat_id_provided"
+                <*> o .:? "dob"
+                <*> (fmap FirstName <$> o .:? "first_name")
+                <*> (fmap LastName <$> o .:? "last_name")
+                <*> o .:? "gender"
+                <*> o .:? "maiden_name"
+                <*> o .:? "personal_address"
+                <*> o .:? "personal_id_number_provided"
+                <*> o .:? "phone_number"
+                <*> o .:? "ssn_last_4_provided"
+                <*> o .:? "type"
+                <*> o .:? "verification"
+  parseJSON _ = mzero
+
+------------------------------------------------------------------------------
+data TOSAcceptance = TOSAcceptance
+       { tosAcceptanceDate :: Maybe UTCTime
+       , tosAcceptanceIP :: Maybe String
+       , tosAcceptanceUserAgent :: Maybe String
+       }
+  deriving (Read, Show, Eq, Ord, Data, Typeable)
+
+instance FromJSON TOSAcceptance where
+  parseJSON (Object o) =
+    TOSAcceptance <$> (fmap fromSeconds <$> o .:? "date")
+                  <*> o .:? "ip"
+                  <*> o .:? "user_agent"
+  parseJSON _ = mzero
+
+------------------------------------------------------------------------------
+data TransferSchedule = TransferSchedule
+       { transferSchedule :: Maybe Int
+       , transferInterval :: Maybe String
+       , transferMonthlyAnchor :: Maybe Int
+       , transferWeeklyAnchor :: Maybe String
+       }
+  deriving (Read, Show, Eq, Ord, Data, Typeable)
+
+instance FromJSON TransferSchedule where
+  parseJSON (Object o) =
+    TransferSchedule <$> o .:? "delay_days"
+                     <*> o .:? "interval"
+                     <*> o .:? "monthly_anchor"
+                     <*> o .:? "weekly_anchor"
+  parseJSON _ = mzero
+
+------------------------------------------------------------------------------
+data AccountDisabledReason = AccountDisabledReason_Rejected_Fraud
+                           | AccountDisabledReason_Rejected_TOS
+                           | AccountDisabledReason_Rejected_Listed
+                           | AccountDisabledReason_Rejected_Other
+                           | AccountDisabledReason_Fields_Needed
+                           | AccountDisabledReason_Listed
+                           | AccountDisabledReason_Other
+  deriving (Read, Show, Eq, Ord, Data, Typeable)
+
+instance FromJSON AccountDisabledReason where
+  parseJSON (String s) = case T.unpack s of
+    "rejected.fraud"            -> return AccountDisabledReason_Rejected_Fraud
+    "rejected.terms_of_service" -> return AccountDisabledReason_Rejected_TOS
+    "rejected.listed"           -> return AccountDisabledReason_Rejected_Listed
+    "rejected.other"            -> return AccountDisabledReason_Rejected_Other
+    "fields_needed"             -> return AccountDisabledReason_Fields_Needed
+    "listed"                    -> return AccountDisabledReason_Listed
+    "other"                     -> return AccountDisabledReason_Other
+    _                           -> mzero
+  parseJSON _ = mzero
+
+------------------------------------------------------------------------------
+data AccountVerification = AccountVerification
+       { accountVerificationDisabledReason :: Maybe AccountDisabledReason
+       , accountVerificationDueBy :: Maybe UTCTime
+       , accountVerificationFieldsNeeded :: Maybe [String]
+       }
+  deriving (Read, Show, Eq, Ord, Data, Typeable)
+
+instance FromJSON AccountVerification where
+  parseJSON (Object o) =
+    AccountVerification <$> o .:? "disabled_reason"
+                        <*> (fmap fromSeconds <$> o .:? "due_by")
+                        <*> o .:? "fields_needed"
+  parseJSON _ = mzero
+
+------------------------------------------------------------------------------
+-- | `Account` Object
+data Account = Account {
+       accountId                    :: AccountId
+     , accountEmail                 :: Maybe Email
+     , accountStatementDescriptor   :: Maybe Description
+     , accountDisplayName           :: Maybe Text
+     , accountTimeZone              :: Maybe Text
+     , accountDetailsSubmitted      :: Maybe Bool
+     , accountChargesEnabled        :: Maybe Bool
+     , accountTransfersEnabled      :: Maybe Bool
+     , accountDefaultCurrency       :: Maybe Currency
+     , accountCountry               :: Maybe Text
+     , accountObject                :: Text
+     , accountBusinessName          :: Maybe Text
+     , accountBusinessPrimaryColor  :: Maybe Text
+     , accountBusinessURL           :: Maybe Text
+     , accountBusinessLogo          :: Maybe Text
+     , accountSupportPhone          :: Maybe Text
+     , accountDebitNegativeBalances :: Maybe Bool
+     , accountDeclineChargeOn       :: Maybe DeclineChargeOn
+     , accountExternalAccounts      :: Maybe (StripeList ExternalAccount)
+     , accountLegalEntity           :: Maybe LegalEntity
+     , accountManaged               :: Maybe Bool
+     , accountProductDescription    :: Maybe String
+     , accountSupportURL            :: Maybe String
+     , accountTOSAcceptance         :: Maybe TOSAcceptance
+     , accountTransferSchedule      :: Maybe TransferSchedule
+     , accountTransferStatementDescriptor :: Maybe String
+     , accountVerification          :: Maybe AccountVerification
+} deriving (Read, Show, Eq, Ord, Data, Typeable)
+
 instance FromJSON Account where
-   parseJSON (Object o) =
+   parseJSON (Object o) = do
+       obj <- o .: "object"
+       guard (obj == "account")
        Account <$> (AccountId <$> o .:  "id")
-               <*> (Email <$> o .:  "email")
+               <*> (fmap Email <$> o .:?  "email")
                <*> o .:? "statement_descriptor"
-               <*> o .:  "display_name"
-               <*> o .:  "timezone"
-               <*> o .:  "details_submitted"
-               <*> o .:  "charge_enabled"
-               <*> o .:  "transfer_enabled"
-               <*> o .:  "currencies_supported"
-               <*> o .:  "default_currency"
-               <*> o .:  "country"
-               <*> o .:  "object"
-               <*> o .:?  "business_name"
-               <*> o .:?  "business_url"
-               <*> o .:?  "business_logo"
-               <*> o .:?  "support_phone"
+               <*> o .:? "display_name"
+               <*> o .:? "timezone"
+               <*> o .:? "details_submitted"
+               <*> o .:? "charges_enabled"
+               <*> o .:? "transfers_enabled"
+               <*> o .:? "default_currency"
+               <*> o .:? "country"
+               <*> return obj
+               <*> o .:? "business_name"
+               <*> o .:? "business_primary_color"
+               <*> o .:? "business_url"
+               <*> o .:? "business_logo"
+               <*> o .:? "support_phone"
+               <*> o .:? "debit_negative_balances"
+               <*> o .:? "decline_charge_on"
+               <*> o .:? "external_accounts"
+               <*> o .:? "legal_entity"
+               <*> o .:? "managed"
+               <*> o .:? "product_description"
+               <*> o .:? "support_url"
+               <*> o .:? "tos_acceptance"
+               <*> o .:? "transfer_schedule"
+               <*> o .:? "transfer_statement_descriptor"
+               <*> o .:? "verification"
+
    parseJSON _ = mzero
+
+------------------------------------------------------------------------------
+-- | Result of creating a new `Account`
+
+data AccountKeys = AccountKeys
+       { accountKeySecret :: BS.ByteString
+       , accountKeyPublishable :: BS.ByteString
+       }
+  deriving (Read, Show, Eq, Ord, Data, Typeable)
+
+instance FromJSON AccountKeys where
+  parseJSON (Object o) =
+    AccountKeys <$> (T.encodeUtf8 <$> o .: "secret")
+                <*> (T.encodeUtf8 <$> o .: "publishable")
+  parseJSON _ = mzero
+
+data CreatedAccount = CreatedAccount
+       { createdAccountAccount :: Account
+       , createdAccountKeys :: AccountKeys
+       }
+  deriving (Read, Show, Eq, Ord, Data, Typeable)
+
+instance FromJSON CreatedAccount where
+  parseJSON (Object o) = do
+    CreatedAccount <$> parseJSON (Object o)
+                   <*> o .: "keys"
+  parseJSON _ = mzero
 
 ------------------------------------------------------------------------------
 -- | `Balance` Object
@@ -2376,7 +2717,7 @@ data BitcoinReceiver = BitcoinReceiver {
     ,  btcMetadata              :: MetaData
     ,  btcRefundAddress         :: Maybe Text
     ,  btcTransactions          :: Maybe Transactions
-    ,  btcPayment               :: Maybe PaymentId 
+    ,  btcPayment               :: Maybe PaymentId
     ,  btcCustomer              :: Maybe CustomerId
     } deriving (Show, Eq)
 
@@ -2385,23 +2726,23 @@ data BitcoinReceiver = BitcoinReceiver {
 instance FromJSON BitcoinReceiver where
    parseJSON (Object o) =
      BitcoinReceiver <$> (BitcoinReceiverId <$> o .: "id")
-                     <*> o .: "object"  
-                     <*> (fromSeconds <$> o .: "created") 
-                     <*> o .: "livemode"  
-                     <*> o .: "active"  
-                     <*> o .: "amount"  
-                     <*> o .: "amount_received"  
-                     <*> o .: "bitcoin_amount"  
-                     <*> o .: "bitcoin_amount_received"  
-                     <*> o .: "bitcoin_uri"  
-                     <*> o .: "currency"  
-                     <*> o .: "filled"  
-                     <*> o .: "inbound_address"  
-                     <*> o .: "uncaptured_funds"  
-                     <*> o .:? "description"  
-                     <*> o .: "email"  
+                     <*> o .: "object"
+                     <*> (fromSeconds <$> o .: "created")
+                     <*> o .: "livemode"
+                     <*> o .: "active"
+                     <*> o .: "amount"
+                     <*> o .: "amount_received"
+                     <*> o .: "bitcoin_amount"
+                     <*> o .: "bitcoin_amount_received"
+                     <*> o .: "bitcoin_uri"
+                     <*> o .: "currency"
+                     <*> o .: "filled"
+                     <*> o .: "inbound_address"
+                     <*> o .: "uncaptured_funds"
+                     <*> o .:? "description"
+                     <*> o .: "email"
                      <*> (MetaData . H.toList <$> o .: "metadata")
-                     <*> o .:? "refund_address"  
+                     <*> o .:? "refund_address"
                      <*> o .:? "transactions"
                      <*> (fmap PaymentId <$> o .:? "payment")
                      <*> (fmap CustomerId <$> o .:? "customer")
@@ -2421,11 +2762,11 @@ data Transactions = Transactions {
 -- | Bitcoin Transactions data
 instance FromJSON Transactions where
    parseJSON (Object o) =
-     Transactions <$> o .: "object"  
-                  <*> o .: "total_count"  
-                  <*> o .: "has_more"  
-                  <*> o .: "url"  
-                  <*> o .: "data"  
+     Transactions <$> o .: "object"
+                  <*> o .: "total_count"
+                  <*> o .: "has_more"
+                  <*> o .: "url"
+                  <*> o .: "data"
    parseJSON _ = mzero
 
 ------------------------------------------------------------------------------
@@ -2532,3 +2873,13 @@ currencyDivisor cur =
   where
     zeroCurrency = fromIntegral
     hundred v    = fromRat $ (fromIntegral v) % (100 :: Integer)
+
+-------------------------------------------------------------------------------
+-- | FileUpload and FileUploadId
+
+newtype FileUploadId = FileUploadId Text
+  deriving (Read, Show, Eq, Ord, Data, Typeable)
+
+instance FromJSON FileUploadId where
+  parseJSON (String s) = return $ FileUploadId s
+  parseJSON _ = mzero

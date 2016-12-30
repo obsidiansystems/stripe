@@ -32,7 +32,7 @@ import           Network.Http.Client        (Connection,
                                              inputStreamBody, openConnectionSSL,
                                              receiveResponse, sendRequest,
                                              setAuthorizationBasic, encodedFormBody,
-                                             setContentType, setHeader, 
+                                             setContentType, setHeader,
                                              setTransferEncoding)
 import qualified Network.Http.Client        as C
 import           OpenSSL                    (withOpenSSL)
@@ -128,7 +128,7 @@ callAPI conn fromJSON' StripeConfig {..} StripeRequest{..} = do
     http (m2m method) $ "/v1/" <> reqURL
     setAuthorizationBasic (getStripeKey secretKey) mempty
     setContentType "application/x-www-form-urlencoded"
-    setHeader "Stripe-Version" (toBytestring V20141007)
+    setHeader "Stripe-Version" (toBytestring V20160706)
     setHeader "Connection" "Keep-Alive"
     setTransferEncoding
   sendRequest conn req (encodedFormBody reqBody)
@@ -139,7 +139,7 @@ callAPI conn fromJSON' StripeConfig {..} StripeRequest{..} = do
            then return unknownCode
            else do -- FIXME: should we check the content-type instead
                    -- assuming it is application/json? --DMJ: Stripe
-                   -- gaurantees it to be JSON 
+                   -- gaurantees it to be JSON
                    v <- try (Streams.parseFromStream json' inputStream)
                    let r =
                          case v of

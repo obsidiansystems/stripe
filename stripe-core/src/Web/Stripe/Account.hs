@@ -2,6 +2,7 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings     #-}
 {-# LANGUAGE TypeFamilies          #-}
+{-# LANGUAGE LambdaCase #-}
 -------------------------------------------
 -- |
 -- Module      : Web.Stripe.Account
@@ -25,20 +26,17 @@
 --     Right account    -> print account
 --     Left stripeError -> print stripeError
 -- @
-module Web.Stripe.Account
-    ( -- * API
-      GetAccountDetails
-    , getAccountDetails
-      -- * Types
-    , Account   (..)
-    , AccountId (..)
-    ) where
+module Web.Stripe.Account where
 
-import           Web.Stripe.StripeRequest (Method (GET),
-                                           StripeRequest (..),
-                                           StripeReturn, mkStripeRequest)
-import           Web.Stripe.Types         ( Account   (..)
-                                          , AccountId (..) )
+import qualified Data.ByteString as BS
+import Data.Default.Class
+import Data.Monoid
+import Data.Text (Text)
+import qualified Data.Text as T
+
+import Web.Stripe.StripeRequest
+import Web.Stripe.Types
+import Web.Stripe.Util
 
 ------------------------------------------------------------------------------
 -- | Retrieve the object that represents your Stripe account
@@ -49,3 +47,89 @@ getAccountDetails = request
   where request = mkStripeRequest GET url params
         url     = "account"
         params  = []
+
+------------------------------------------------------------------------------
+-- | Create a connected account
+
+data AccountType = AccountType_Managed
+                 | AccountType_Standalone
+  deriving (Eq, Ord, Show, Read)
+
+--TODO: Support more parameters for NewAccount
+data NewAccount = NewAccount
+       { _newAccount_managed :: Maybe AccountType
+       , _newAccount_email :: Maybe Email
+       , _newAccount_country :: Maybe Country
+       }
+  deriving (Eq, Ord, Show, Read)
+
+instance ToStripeParam NewAccount where
+  toStripeParam n = (getParams
+    [ ("managed", _newAccount_managed n <&> \case
+         AccountType_Managed -> "true"
+         AccountType_Standalone -> "false")
+    , ("email", _newAccount_email n <&> \(Email e) -> e)
+    , ("country", _newAccount_country n <&> \(Country c) -> c)
+    ] ++)
+
+instance Default NewAccount where
+  def = NewAccount Nothing Nothing Nothing
+
+data CreateAccount
+createAccount :: NewAccount -> StripeRequest CreateAccount
+createAccount t = mkStripeRequest POST url params
+  where url = "accounts"
+        params = toStripeParam t
+               $ []
+type instance StripeReturn CreateAccount = CreatedAccount
+
+------------------------------------------------------------------------------
+-- | Update a connected account
+
+--TODO: Support more parameters for UpdateAccount
+--TODO: Support external account dictionaries as well as tokens
+data UpdateAccountParams = UpdateAccountParams
+       { _updateAccount_external_account :: Maybe TokenId
+       , _updateAccount_legal_entity_business_name :: Maybe Text
+       , _updateAccount_legal_entity_business_tax_id :: Maybe Text
+       , _updateAccount_legal_entity_dob_day :: Maybe Int
+       , _updateAccount_legal_entity_dob_month :: Maybe Int
+       , _updateAccount_legal_entity_dob_year :: Maybe Int
+       , _updateAccount_legal_entity_first_name :: Maybe Text
+       , _updateAccount_legal_entity_last_name :: Maybe Text
+       , _updateAccount_tos_acceptance_date :: Maybe Int
+       , _updateAccount_tos_acceptance_ip :: Maybe Text
+       }
+
+instance ToStripeParam UpdateAccountParams where
+  toStripeParam u =
+    let lp = ("legal_entity" <>) . BS.concat . map (\t -> BS.concat ["[", t, "]"])
+        tos = ("tos_acceptance" <>) . BS.concat . map (\t -> BS.concat ["[", t, "]"])
+    in (getParams
+          [ ("external_account", _updateAccount_external_account u <&> \(TokenId tid) -> tid)
+          , (lp ["type"], Just "company")
+          , (lp ["business_name"], _updateAccount_legal_entity_business_name u)
+          , (lp ["business_tax_id"], _updateAccount_legal_entity_business_tax_id u)
+          , (lp ["dob", "day"], _updateAccount_legal_entity_dob_day u <&> T.pack . show)
+          , (lp ["dob", "month"], _updateAccount_legal_entity_dob_month u <&> T.pack . show)
+          , (lp ["dob", "year"], _updateAccount_legal_entity_dob_year u <&> T.pack . show)
+          , (lp ["first_name"], _updateAccount_legal_entity_first_name u)
+          , (lp ["last_name"], _updateAccount_legal_entity_last_name u)
+          , (tos ["date"], _updateAccount_tos_acceptance_date u <&> T.pack . show)
+          , (tos ["ip"], _updateAccount_tos_acceptance_ip u)
+          ] ++)
+
+instance Default UpdateAccountParams where
+  def = UpdateAccountParams Nothing Nothing Nothing
+                            Nothing Nothing Nothing
+                            Nothing Nothing Nothing
+                            Nothing -- NOTHING!!!!!
+
+data UpdateAccount
+updateAccount :: AccountId -> UpdateAccountParams -> StripeRequest UpdateAccount
+updateAccount (AccountId aid) u = mkStripeRequest POST url params
+  where url = "accounts" </> aid
+        params = toStripeParam u
+               $ []
+
+type instance StripeReturn UpdateAccount = Account

@@ -11,4 +11,5 @@ mkDerivation {
   ];
   description = "Stripe API for Haskell - http-streams backend";
   license = stdenv.lib.licenses.mit;
+  doCheck = false;
 }

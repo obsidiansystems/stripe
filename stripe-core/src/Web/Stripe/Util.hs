@@ -17,6 +17,7 @@ module Web.Stripe.Util
     , (</>)
     , toMetaData
     , toExpandable
+    , (<&>)
     ) where
 
 import           Data.ByteString       (ByteString)
@@ -106,3 +107,7 @@ toExpandable = map toKV
   where
     toKV v = ("expand[]",  T.encodeUtf8 v)
 
+infixl 1 <&>
+{-# INLINE (<&>) #-}
+(<&>) :: Functor f => f a -> (a -> b) -> f b
+(<&>) = flip fmap

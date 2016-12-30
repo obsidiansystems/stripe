@@ -33,6 +33,7 @@ import           Data.ByteString    (ByteString)
 import           Data.Monoid        ((<>))
 import           Data.String        (fromString)
 import           Data.Text          (Text)
+import qualified Data.Text as Text
 import qualified Data.Text.Encoding as Text
 import           Numeric            (showFFloat)
 import           Web.Stripe.Types   (AccountBalance(..), AccountNumber(..),
@@ -68,7 +69,7 @@ import           Web.Stripe.Types   (AccountBalance(..), AccountNumber(..),
                                      RefundApplicationFee(..), RefundReason(..),
                                      RoutingNumber(..), StartingAfter(..),
                                      StatementDescription(..), Source(..),
-                                     SubscriptionId(..), TaxID(..), 
+                                     SubscriptionId(..), TaxID(..),
                                      TaxPercent(..), TimeRange(..),
                                      TokenId(..), TransactionId(..),
                                      TransactionType(..), TransferId(..),
@@ -190,6 +191,10 @@ instance ToStripeParam Closed where
   toStripeParam (Closed b) =
     (("closed", if b then "true" else "false") :)
 
+instance ToStripeParam Country where
+  toStripeParam (Country c) =
+    (("country", Text.encodeUtf8 c) :)
+
 instance ToStripeParam Created where
   toStripeParam (Created time) =
     (("created", toBytestring $ toSeconds time) :)
@@ -300,6 +305,7 @@ instance ToStripeParam NewBankAccount where
         [ ("bank_account[country]", Just $ (\(Country x) -> x) newBankAccountCountry)
         , ("bank_account[routing_number]", Just $ (\(RoutingNumber x) -> x) newBankAccountRoutingNumber)
         , ("bank_account[account_number]", Just $ (\(AccountNumber x) -> x) newBankAccountAccountNumber)
+        , ("bank_account[currency]", Just $ Text.pack $ show $ newBankAccountCurrency)
         ]) ++)
 
 instance ToStripeParam NewCard where
