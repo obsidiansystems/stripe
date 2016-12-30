@@ -1485,6 +1485,9 @@ newtype AccountId
 
 ------------------------------------------------------------------------------
 -- | JSON Instance for `AccountId`
+instance ToJSON AccountId where
+  toJSON (AccountId aid) = String aid
+
 instance FromJSON AccountId where
    parseJSON (String aid) = pure $ AccountId aid
    parseJSON _ = mzero
@@ -1573,6 +1576,19 @@ data DetailsCode = DetailsCode_Scan_Corrupt
                  | DetailsCode_Failed_Other
   deriving (Read, Show, Eq, Ord, Data, Typeable)
 
+instance ToJSON DetailsCode where
+  toJSON d = String $ case d of
+    DetailsCode_Scan_Corrupt -> "scan_corrupt"
+    DetailsCode_Scan_Not_Readable -> "scan_not_readable"
+    DetailsCode_Scan_Failed_Greyscale -> "scan_failed_greyscale"
+    DetailsCode_Scan_Not_Uploaded -> "scan_not_uploaded"
+    DetailsCode_Scan_Id_Type_Not_Supported -> "scan_id_type_not_supported"
+    DetailsCode_Scan_Id_Country_Not_Supported -> "scan_id_country_not_supported"
+    DetailsCode_Scan_Name_Mismatch -> "scan_name_mismatch"
+    DetailsCode_Scan_Failed_Other -> "scan_failed_other"
+    DetailsCode_Failed_Keyed_Identity -> "failed_keyed_identity"
+    DetailsCode_Failed_Other -> "failed_other"
+
 instance FromJSON DetailsCode where
   parseJSON (String t) = case T.unpack t of
     "scan_corrupt"                  -> return DetailsCode_Scan_Corrupt
@@ -1595,6 +1611,12 @@ data VerificationStatus = VerificationStatus_Unverified
                         | VerificationStatus_Pending
                         | VerificationStatus_Verified
   deriving (Read, Show, Eq, Ord, Data, Typeable)
+
+instance ToJSON VerificationStatus where
+  toJSON v = String $ case v of
+    VerificationStatus_Unverified -> "unverified"
+    VerificationStatus_Pending -> "pending"
+    VerificationStatus_Verified -> "verified"
 
 instance FromJSON VerificationStatus where
   parseJSON (String t) = case T.unpack t of
@@ -1737,6 +1759,16 @@ data AccountDisabledReason = AccountDisabledReason_Rejected_Fraud
                            | AccountDisabledReason_Listed
                            | AccountDisabledReason_Other
   deriving (Read, Show, Eq, Ord, Data, Typeable)
+
+instance ToJSON AccountDisabledReason where
+  toJSON d = String $ case d of
+    AccountDisabledReason_Rejected_Fraud -> "rejected.fraud"
+    AccountDisabledReason_Rejected_TOS -> "rejected.terms_of_service"
+    AccountDisabledReason_Rejected_Listed -> "rejected.listed"
+    AccountDisabledReason_Rejected_Other -> "rejected.other"
+    AccountDisabledReason_Fields_Needed -> "fields_needed"
+    AccountDisabledReason_Listed -> "listed"
+    AccountDisabledReason_Other -> "other"
 
 instance FromJSON AccountDisabledReason where
   parseJSON (String s) = case T.unpack s of
@@ -2242,6 +2274,13 @@ instance FromJSON ConnectApp where
 newtype TokenId =
     TokenId Text
     deriving (Read, Show, Eq, Ord, Data, Typeable)
+
+instance ToJSON TokenId where
+  toJSON (TokenId t) = String t
+
+instance FromJSON TokenId where
+  parseJSON (String s) = return $ TokenId s
+  parseJSON _ = mzero
 
 ------------------------------------------------------------------------------
 -- | Type of `Token`
