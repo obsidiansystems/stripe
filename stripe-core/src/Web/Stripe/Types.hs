@@ -1631,8 +1631,8 @@ instance FromJSON VerificationStatus where
 data Verification = Verification
        { verificationDetails :: Maybe String
        , verificationDetails_Code :: Maybe DetailsCode
-       , verificationDetails_Document :: Maybe FileUploadId
-       , verificationDetails_Status :: Maybe VerificationStatus
+       , verificationDocument :: Maybe FileUploadId
+       , verificationStatus :: Maybe VerificationStatus
        }
   deriving (Read, Show, Eq, Ord, Data, Typeable)
 
