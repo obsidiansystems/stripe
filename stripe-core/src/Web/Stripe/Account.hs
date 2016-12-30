@@ -60,20 +60,48 @@ data NewAccount = NewAccount
        { _newAccount_managed :: Maybe AccountType
        , _newAccount_email :: Maybe Email
        , _newAccount_country :: Maybe Country
+       , _newAccount_external_account :: Maybe TokenId
+       , _newAccount_legal_entity_business_name :: Maybe Text
+       , _newAccount_legal_entity_business_tax_id :: Maybe Text
+       , _newAccount_legal_entity_dob_day :: Maybe Int
+       , _newAccount_legal_entity_dob_month :: Maybe Int
+       , _newAccount_legal_entity_dob_year :: Maybe Int
+       , _newAccount_legal_entity_first_name :: Maybe Text
+       , _newAccount_legal_entity_last_name :: Maybe Text
+       , _newAccount_tos_acceptance_date :: Maybe Int
+       , _newAccount_tos_acceptance_ip :: Maybe Text
        }
   deriving (Eq, Ord, Show, Read)
 
 instance ToStripeParam NewAccount where
-  toStripeParam n = (getParams
-    [ ("managed", _newAccount_managed n <&> \case
-         AccountType_Managed -> "true"
-         AccountType_Standalone -> "false")
-    , ("email", _newAccount_email n <&> \(Email e) -> e)
-    , ("country", _newAccount_country n <&> \(Country c) -> c)
-    ] ++)
+  toStripeParam n =
+    let lp = ("legal_entity" <>) . BS.concat . map (\t -> BS.concat ["[", t, "]"])
+        tos = ("tos_acceptance" <>) . BS.concat . map (\t -> BS.concat ["[", t, "]"])
+    in (getParams
+          [ ("managed", _newAccount_managed n <&> \case
+               AccountType_Managed -> "true"
+               AccountType_Standalone -> "false")
+          , ("email", _newAccount_email n <&> \(Email e) -> e)
+          , ("country", _newAccount_country n <&> \(Country c) -> c)
+          , ("external_account", _newAccount_external_account n <&> \(TokenId tid) -> tid)
+          , (lp ["type"], Just "company")
+          , (lp ["business_name"], _newAccount_legal_entity_business_name n)
+          , (lp ["business_tax_id"], _newAccount_legal_entity_business_tax_id n)
+          , (lp ["dob", "day"], _newAccount_legal_entity_dob_day n <&> T.pack . show)
+          , (lp ["dob", "month"], _newAccount_legal_entity_dob_month n <&> T.pack . show)
+          , (lp ["dob", "year"], _newAccount_legal_entity_dob_year n <&> T.pack . show)
+          , (lp ["first_name"], _newAccount_legal_entity_first_name n)
+          , (lp ["last_name"], _newAccount_legal_entity_last_name n)
+          , (tos ["date"], _newAccount_tos_acceptance_date n <&> T.pack . show)
+          , (tos ["ip"], _newAccount_tos_acceptance_ip n)
+          ] ++)
 
 instance Default NewAccount where
   def = NewAccount Nothing Nothing Nothing
+                   Nothing Nothing Nothing
+                   Nothing Nothing Nothing
+                   Nothing Nothing Nothing
+                   Nothing
 
 data CreateAccount
 createAccount :: NewAccount -> StripeRequest CreateAccount
