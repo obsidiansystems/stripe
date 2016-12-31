@@ -1278,6 +1278,7 @@ data NewBankAccount = NewBankAccount
     , newBankAccountRoutingNumber :: RoutingNumber
     , newBankAccountAccountNumber :: AccountNumber
     , newBankAccountCurrency :: Currency
+    , newBankAccountAccountHolderName :: Text
     }
     deriving (Read, Show, Eq, Ord, Data, Typeable)
 

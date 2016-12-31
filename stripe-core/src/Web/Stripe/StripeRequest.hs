@@ -306,6 +306,7 @@ instance ToStripeParam NewBankAccount where
         , ("bank_account[routing_number]", Just $ (\(RoutingNumber x) -> x) newBankAccountRoutingNumber)
         , ("bank_account[account_number]", Just $ (\(AccountNumber x) -> x) newBankAccountAccountNumber)
         , ("bank_account[currency]", Just $ Text.pack $ show $ newBankAccountCurrency)
+        , ("bank_account[account_holder_name]", Just $ newBankAccountAccountHolderName)
         ]) ++)
 
 instance ToStripeParam NewCard where
